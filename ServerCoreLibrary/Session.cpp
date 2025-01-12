@@ -1,78 +1,189 @@
 #include "pch.h"
 #include "Session.h"
+#include "Service.h"
 #include <iostream>
 
-Session::Session(asio::ip::tcp::socket socket)
-    : m_socket(std::move(socket))
-    , m_receiveBuffer(1024)  // 초기 버퍼 크기 설정
-    , m_sendBuffer(1024)
+Session::Session(asio::io_context& ioc)
+    : _socket(ioc)
+    , _receiveBuffer(BUFFER_SIZE)
 {
 }
 
 Session::~Session()
 {
-    if (m_socket.is_open())
+    Disconnect(L"Destructor called");
+}
+
+void Session::Send(SendBufferRef sendBuffer)
+{
+    if (!IsConnected())
+        return;
+
+    bool registerSend = false;
     {
-        m_socket.close();
+        std::lock_guard<std::mutex> lock(_mutex);
+        _sendQueue.push(sendBuffer);
+
+        if (!_sendRegistered.exchange(true))
+            registerSend = true;
+    }
+
+    if (registerSend)
+        StartSend();
+}
+
+bool Session::Connect(const std::string& host, unsigned short port)
+{
+    tcp::resolver resolver(_socket.get_executor());
+    auto endpoints = resolver.resolve(host, std::to_string(port));
+
+    asio::async_connect(_socket, endpoints,
+        [this](const std::error_code& error, const tcp::endpoint& endpoint) {
+            HandleConnect(error);
+        });
+
+    return true;
+}
+
+void Session::HandleConnect(const std::error_code& error)
+{
+    if (!error) {
+        _connected.store(true);
+        _endpoint = _socket.remote_endpoint();
+
+        // Add session to service
+        if (auto service = _service.lock())
+            service->AddSession(shared_from_this());
+
+        OnConnected();
+        StartReceive();
+    }
+    else {
+        HandleError(error);
     }
 }
 
-void Session::Send(const char* buffer, size_t length)
+void Session::Disconnect(const std::wstring& cause)
 {
-    bool wasEmpty = m_sendBuffer.empty();
+    if (!_connected.exchange(false))
+        return;
 
-    // 보낼 데이터를 버퍼에 추가
-    m_sendBuffer.insert(m_sendBuffer.end(), buffer, buffer + length);
+    std::wcout << L"Disconnect: " << cause << std::endl;
 
-    // 이전에 버퍼가 비어있었다면 쓰기 시작
-    if (wasEmpty)
-    {
-        DoWrite();
+    std::error_code ec;
+    _socket.shutdown(tcp::socket::shutdown_both, ec);
+    _socket.close(ec);
+
+    OnDisconnected();
+
+    if (auto service = _service.lock())
+        service->ReleaseSession(shared_from_this());
+}
+
+void Session::StartReceive()
+{
+    if (!IsConnected())
+        return;
+
+    auto self(shared_from_this());
+    _socket.async_read_some(
+        asio::buffer(_receiveBuffer.data() + _writePos, _receiveBuffer.size() - _writePos),
+        [this, self](const std::error_code& error, size_t bytes_transferred) {
+            HandleReceive(error, bytes_transferred);
+        });
+}
+
+void Session::HandleReceive(const std::error_code& error, size_t bytes_transferred)
+{
+    if (error) {
+        HandleError(error);
+        return;
     }
+
+    if (bytes_transferred == 0) {
+        Disconnect(L"Recv 0");
+        return;
+    }
+
+    _writePos += bytes_transferred;
+
+    int32_t processLen = OnRecv(_receiveBuffer.data() + _readPos, _writePos - _readPos);
+    if (processLen < 0 || (_writePos - _readPos) < static_cast<size_t>(processLen)) {
+        Disconnect(L"OnRead Overflow");
+        return;
+    }
+
+    _readPos += processLen;
+
+    // Buffer cleanup
+    if (_readPos == _writePos) {
+        _readPos = _writePos = 0;
+    }
+    else if (_readPos > 0) {
+        std::memmove(_receiveBuffer.data(), _receiveBuffer.data() + _readPos, _writePos - _readPos);
+        _writePos -= _readPos;
+        _readPos = 0;
+    }
+
+    StartReceive();
 }
 
-void Session::Start()
+void Session::StartSend()
 {
-    DoRead();
-}
+    if (!IsConnected())
+        return;
 
-void Session::DoRead()
-{
+    std::vector<asio::const_buffer> buffers;
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        while (!_sendQueue.empty()) {
+        //    SendBufferRef sendBuffer = _sendQueue.front();
+       //     buffers.push_back(asio::buffer(sendBuffer->Buffer(), sendBuffer->WriteSize()));
+            _sendQueue.pop();
+        }
+    }
+
+    if (buffers.empty()) {
+        _sendRegistered.store(false);
+        return;
+    }
+
     auto self(shared_from_this());
-    m_socket.async_read_some(
-        asio::buffer(m_receiveBuffer),
-        [this, self](std::error_code ec, std::size_t length)
-        {
-            if (!ec)
-            {
-                OnReceive(m_receiveBuffer.data(), length);
-                DoRead();  // 계속해서 읽기
-            }
-            else
-            {
-                std::cerr << "Read failed: " << ec.message() << std::endl;
-                m_socket.close();
-            }
+    asio::async_write(_socket, buffers,
+        [this, self](const std::error_code& error, size_t bytes_transferred) {
+            HandleSend(error, bytes_transferred);
         });
 }
 
-void Session::DoWrite()
+void Session::HandleSend(const std::error_code& error, size_t bytes_transferred)
 {
-    auto self(shared_from_this());
-    asio::async_write(
-        m_socket,
-        asio::buffer(m_sendBuffer),
-        [this, self](std::error_code ec, std::size_t length)
-        {
-            if (!ec)
-            {
-                Send(m_sendBuffer.data(), length);
-                m_sendBuffer.clear();  // 버퍼 클리어
-            }
-            else
-            {
-                std::cerr << "Write failed: " << ec.message() << std::endl;
-                m_socket.close();
-            }
-        });
+    if (error) {
+        HandleError(error);
+        return;
+    }
+
+    if (bytes_transferred == 0) {
+        Disconnect(L"Send 0");
+        return;
+    }
+
+    OnSend(bytes_transferred);
+
+    std::lock_guard<std::mutex> lock(_mutex);
+    if (_sendQueue.empty())
+        _sendRegistered.store(false);
+    else
+        StartSend();
+}
+
+void Session::HandleError(const std::error_code& error)
+{
+    if (error == asio::error::eof ||
+        error == asio::error::connection_reset ||
+        error == asio::error::connection_aborted) {
+        Disconnect(L"Connection closed by peer");
+    }
+    else {
+        std::cout << "Handle Error: " << error.message() << std::endl;
+    }
 }

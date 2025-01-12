@@ -1,24 +1,28 @@
 #pragma once
 
 class Session;
+class Service;
+class ServerService;
 
-class Listener
+class Listener : public std::enable_shared_from_this<Listener>
 {
 public:
-    Listener(asio::io_context& context);
-    virtual ~Listener() = default;
+    Listener(asio::io_context& ioc, const asio::ip::tcp::endpoint& endpoint);
+    ~Listener();
 
-    bool Start(const std::string& address, unsigned short port);
+public:
+    /* External Interface */
+    bool StartAccept(std::shared_ptr<ServerService> service);
     void Stop();
 
-protected:
-    virtual std::shared_ptr<Session> 
-        CreateSession(asio::ip::tcp::socket socket) = 0;
+private:
+    /* Accept Related */
+    void RegisterAccept();
+    void HandleAccept(std::shared_ptr<Session> session, const std::error_code& error);
 
 private:
-    void DoAccept();
-
-    asio::ip::tcp::acceptor m_acceptor;
-    asio::io_context& m_context;
+    asio::io_context& _ioContext;
+    asio::ip::tcp::acceptor _acceptor;
+    std::shared_ptr<ServerService> _service;
+    bool _isRunning = false;
 };
-

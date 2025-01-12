@@ -151,14 +151,19 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="CoreGlobal.h" />
+    <ClInclude Include="CoreTLS.h" />
     <ClInclude Include="framework.h" />
     <ClInclude Include="Listener.h" />
     <ClInclude Include="CorePch.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="Service.h" />
     <ClInclude Include="Session.h" />
+    <ClInclude Include="ThreadManager.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="CoreGlobal.cpp" />
+    <ClCompile Include="CoreTLS.cpp" />
     <ClCompile Include="Listener.cpp" />
     <ClCompile Include="CorePch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
@@ -170,6 +175,7 @@
     <ClCompile Include="ServerCoreLibrary.cpp" />
     <ClCompile Include="Service.cpp" />
     <ClCompile Include="Session.cpp" />
+    <ClCompile Include="ThreadManager.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

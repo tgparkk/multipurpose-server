@@ -9,9 +9,18 @@
 // 여기에 미리 컴파일하려는 헤더 추가
 #include "framework.h"
 
+#include "CoreTLS.h"
+#include "CoreGlobal.h"
+
 #include <asio.hpp>
+
 #include <memory>
 #include <vector>
 #include <thread>
 #include <mutex>
 #include <iostream>
+#include <string>
+#include <system_error>
+#include <queue>
+#include <set>
+#include <functional>

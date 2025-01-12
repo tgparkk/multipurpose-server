@@ -1,64 +1,82 @@
 #include "pch.h"
 #include "Listener.h"
 #include "Session.h"
+#include "Service.h"
 #include <iostream>
 
-Listener::Listener(asio::io_context& context)
-    : m_acceptor(context)
-    , m_context(context)
+Listener::Listener(asio::io_context& ioc, const asio::ip::tcp::endpoint& endpoint)
+    : _ioContext(ioc)
+    , _acceptor(ioc, endpoint)
 {
+    _acceptor.set_option(asio::ip::tcp::acceptor::reuse_address(true));
 }
 
-bool Listener::Start(const std::string& address, unsigned short port)
+Listener::~Listener()
 {
-    try
-    {
-        asio::ip::tcp::endpoint endpoint(
-            asio::ip::make_address(address), port);
+    Stop();
+}
 
-        m_acceptor.open(endpoint.protocol());
-        m_acceptor.set_option(asio::ip::tcp::acceptor::reuse_address(true));
-        m_acceptor.bind(endpoint);
-        m_acceptor.listen();
-
-        DoAccept();
-        return true;
-    }
-    catch (std::exception& e)
-    {
-        std::cerr << "Listener::Start failed: " << e.what() << std::endl;
+bool Listener::StartAccept(std::shared_ptr<ServerService> service)
+{
+    _service = service;
+    if (!_service)
         return false;
-    }
+
+    _isRunning = true;
+
+    // Start accepting connections
+    RegisterAccept();
+
+    return true;
 }
 
 void Listener::Stop()
 {
-    m_acceptor.close();
+    _isRunning = false;
+
+    std::error_code ec;
+    _acceptor.close(ec);
+
+    _service = nullptr;
 }
 
-void Listener::DoAccept()
+void Listener::RegisterAccept()
 {
-    m_acceptor.async_accept(
-        [this](std::error_code ec, asio::ip::tcp::socket socket)
-        {
-            if (!ec)
-            {
-                std::shared_ptr<Session> session = CreateSession(std::move(socket));
-                if (session)
-                {
-                    // Start session operations
-                    session->DoRead();
-                }
-            }
-            else
-            {
-                std::cerr << "Accept failed: " << ec.message() << std::endl;
-            }
+    if (!_isRunning)
+        return;
+    /*
+    std::shared_ptr<Session> session = _service->CreateSession();
+    if (!session)
+        return;
 
-            // Continue accepting
-            if (m_acceptor.is_open())
-            {
-                DoAccept();
-            }
+    _acceptor.async_accept(
+        session->GetSocket(),
+        [this, session](const std::error_code& error)
+        {
+            HandleAccept(session, error);
         });
+    */
+}
+
+void Listener::HandleAccept(std::shared_ptr<Session> session, const std::error_code& error)
+{
+    if (!_isRunning)
+        return;
+
+    if (!error)
+    {
+        std::error_code ec;
+        auto endpoint = session->GetSocket().remote_endpoint(ec);
+        if (!ec)
+        {
+            session->SetNetAddress(endpoint);
+            //session->ProcessConnect();
+        }
+    }
+    else
+    {
+        std::cerr << "Accept failed: " << error.message() << std::endl;
+    }
+
+    RegisterAccept();
 }
