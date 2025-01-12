@@ -71,12 +71,12 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <LibraryPath>$(SolutionDir)Libraries\;$(LibraryPath)</LibraryPath>
-    <IncludePath>$(SolutionDir)Libraries\include;$(IncludePath)</IncludePath>
+    <LibraryPath>$(SolutionDir)Libraries\libs\;$(LibraryPath)</LibraryPath>
+    <IncludePath>$(SolutionDir)Libraries\include\;$(SolutionDir)ServerCoreLibrary\;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <LibraryPath>$(SolutionDir)Libraries\;$(LibraryPath)</LibraryPath>
-    <IncludePath>$(SolutionDir)Libraries\include;$(IncludePath)</IncludePath>
+    <LibraryPath>$(SolutionDir)Libraries\libs\;$(LibraryPath)</LibraryPath>
+    <IncludePath>$(SolutionDir)Libraries\include\;$(SolutionDir)ServerCoreLibrary\;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -137,7 +137,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="main.cpp" />
+    <ClCompile Include="server.cpp" />
     <ClCompile Include="pch.cpp" />
   </ItemGroup>
   <ItemGroup>
