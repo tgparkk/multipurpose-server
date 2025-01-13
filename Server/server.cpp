@@ -17,7 +17,7 @@ void ThreadMain()
 
 
 int main() {
-	for (uint32_t i = 0; i < 5; i++)
+	for (__int32 i = 0; i < 5; i++)
 	{
 		GThreadManager->Launch(ThreadMain);
 	}

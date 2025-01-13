@@ -16,7 +16,6 @@ ThreadManager::~ThreadManager()
 void ThreadManager::Launch(std::function<void(void)> callback)
 {
 	std::lock_guard<std::mutex> guard(_lock);
-
 	_threads.push_back(std::thread([=]()
 		{
 			InitTLS();
