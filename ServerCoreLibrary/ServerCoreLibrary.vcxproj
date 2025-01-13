@@ -151,6 +151,8 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="AsioEvent.h" />
+    <ClInclude Include="AsioCore.h" />
     <ClInclude Include="CoreGlobal.h" />
     <ClInclude Include="CoreTLS.h" />
     <ClInclude Include="framework.h" />
@@ -159,9 +161,12 @@
     <ClInclude Include="pch.h" />
     <ClInclude Include="Service.h" />
     <ClInclude Include="Session.h" />
+    <ClInclude Include="SocketUtils.h" />
     <ClInclude Include="ThreadManager.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="AsioEvent.cpp" />
+    <ClCompile Include="AsioCore.cpp" />
     <ClCompile Include="CoreGlobal.cpp" />
     <ClCompile Include="CoreTLS.cpp" />
     <ClCompile Include="Listener.cpp" />
@@ -175,6 +180,7 @@
     <ClCompile Include="ServerCoreLibrary.cpp" />
     <ClCompile Include="Service.cpp" />
     <ClCompile Include="Session.cpp" />
+    <ClCompile Include="SocketUtils.cpp" />
     <ClCompile Include="ThreadManager.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

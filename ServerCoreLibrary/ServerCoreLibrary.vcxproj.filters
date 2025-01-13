@@ -42,6 +42,15 @@
     <ClInclude Include="CoreGlobal.h">
       <Filter>Main</Filter>
     </ClInclude>
+    <ClInclude Include="AsioEvent.h">
+      <Filter>Network</Filter>
+    </ClInclude>
+    <ClInclude Include="AsioCore.h">
+      <Filter>Network</Filter>
+    </ClInclude>
+    <ClInclude Include="SocketUtils.h">
+      <Filter>Network</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Session.cpp">
@@ -70,6 +79,15 @@
     </ClCompile>
     <ClCompile Include="CoreGlobal.cpp">
       <Filter>Main</Filter>
+    </ClCompile>
+    <ClCompile Include="AsioEvent.cpp">
+      <Filter>Network</Filter>
+    </ClCompile>
+    <ClCompile Include="AsioCore.cpp">
+      <Filter>Network</Filter>
+    </ClCompile>
+    <ClCompile Include="SocketUtils.cpp">
+      <Filter>Network</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>
