@@ -1,70 +1,66 @@
 #pragma once
+#include "NetAddress.h"
+#include "CorePch.h"
 
+class NetAddress;
 class Session;
-//class SendBuffer;
-class Listener;
+using SessionRef = std::shared_ptr<Session>;
+//using SessionFactory = std::function<SessionRef(asio::io_context&)>;
+using SessionFactory = std::function<SessionRef(asio::io_context&)>;
 
 enum class ServiceType : uint8_t
 {
-	Server,
-	Client
+    Server,
+    Client
 };
 
-using SessionFactory = std::function<std::shared_ptr<Session>(asio::io_context&)>;
-
+/*-------------
+    Service
+--------------*/
 class Service : public std::enable_shared_from_this<Service>
 {
 public:
-    Service(ServiceType type,
-        const asio::ip::tcp::endpoint& endpoint,
-        asio::io_context& ioc,
-        SessionFactory factory,
-        int32_t maxSessionCount = 1);
+    Service(ServiceType type, asio::io_context& ioc, const NetAddress& address,
+        SessionFactory factory, int32_t maxSessionCount = 1);
     virtual ~Service();
 
     virtual bool Start() = 0;
-    bool CanStart() { return _sessionFactory != nullptr; }
-
+    bool CanStart() const { return _sessionFactory != nullptr; }
     virtual void CloseService();
-    void SetSessionFactory(SessionFactory func) { _sessionFactory = func; }
 
-    //void Broadcast(std::shared_ptr<SendBuffer> sendBuffer);
-    std::shared_ptr<Session> CreateSession();
-    void AddSession(std::shared_ptr<Session> session);
-    void ReleaseSession(std::shared_ptr<Session> session);
-    int32_t GetCurrentSessionCount() { return _sessionCount; }
-    int32_t GetMaxSessionCount() { return _maxSessionCount; }
+    void SetSessionFactory(SessionFactory factory) { _sessionFactory = factory; }
 
-public:
+    void Broadcast(std::shared_ptr<class SendBuffer> sendBuffer);
+    SessionRef CreateSession();
+    void AddSession(SessionRef session);
+    void ReleaseSession(SessionRef session);
+
     ServiceType GetServiceType() const { return _type; }
-    asio::ip::tcp::endpoint GetEndpoint() const { return _endpoint; }
-    asio::io_context& GetIoContext() { return _ioContext; }
+    const NetAddress& GetNetAddress() const { return _netAddress; }
+    int32_t GetCurrentSessionCount() const { return _sessionCount; }
+    int32_t GetMaxSessionCount() const { return _maxSessionCount; }
+    asio::io_context& GetIOContext() { return _ioc; }
 
 protected:
-    std::mutex _mutex;
+    asio::io_context& _ioc;
     ServiceType _type;
-    asio::ip::tcp::endpoint _endpoint;
-    asio::io_context& _ioContext;
-
-    std::set<std::shared_ptr<Session>> _sessions;
+    NetAddress _netAddress;
+    int32_t _maxSessionCount;
     int32_t _sessionCount = 0;
-    int32_t _maxSessionCount = 0;
     SessionFactory _sessionFactory;
+    std::recursive_mutex _lock;
+    std::set<SessionRef> _sessions;
 };
-
 
 /*-----------------
     ClientService
 ------------------*/
-
 class ClientService : public Service
 {
 public:
-    ClientService(const asio::ip::tcp::endpoint& targetEndpoint,
-        asio::io_context& ioc,
-        SessionFactory factory,
-        int32_t maxSessionCount = 1);
-    virtual ~ClientService() {}
+    ClientService(asio::io_context& ioc, const NetAddress& targetAddress,
+        SessionFactory factory, int32_t maxSessionCount = 1);
+    virtual ~ClientService() = default;
 
     virtual bool Start() override;
 };
@@ -76,15 +72,14 @@ public:
 class ServerService : public Service
 {
 public:
-    ServerService(const asio::ip::tcp::endpoint& endpoint,
-        asio::io_context& ioc,
-        SessionFactory factory,
-        int32_t maxSessionCount = 1);
-    virtual ~ServerService() {}
+    ServerService(asio::io_context& ioc, const NetAddress& address,
+        SessionFactory factory, int32_t maxSessionCount = 1);
+    virtual ~ServerService();
 
     virtual bool Start() override;
     virtual void CloseService() override;
 
 private:
-    std::shared_ptr<Listener> _listener = nullptr;
+    void StartAccept();
+    std::unique_ptr<asio::ip::tcp::acceptor> _acceptor;
 };

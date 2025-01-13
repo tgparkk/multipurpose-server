@@ -1,189 +1,210 @@
 #include "pch.h"
 #include "Session.h"
 #include "Service.h"
+#include "SocketUtils.h"
 #include <iostream>
 
 Session::Session(asio::io_context& ioc)
     : _socket(ioc)
-    , _receiveBuffer(BUFFER_SIZE)
+    , _recvBuffer(BUFFER_SIZE)
 {
 }
 
 Session::~Session()
 {
-    Disconnect(L"Destructor called");
+    Disconnect("Destructor");
 }
 
-void Session::Send(SendBufferRef sendBuffer)
+void Session::Start()
+{
+    RegisterRecv();
+}
+
+void Session::Send(std::shared_ptr<SendBuffer> sendBuffer)
 {
     if (!IsConnected())
         return;
 
     bool registerSend = false;
     {
-        std::lock_guard<std::mutex> lock(_mutex);
+        std::lock_guard<std::mutex> lock(_sendLock);
         _sendQueue.push(sendBuffer);
-
-        if (!_sendRegistered.exchange(true))
+        if (_sendRegistered.exchange(true) == false)
             registerSend = true;
     }
 
     if (registerSend)
-        StartSend();
+        RegisterSend();
 }
 
-bool Session::Connect(const std::string& host, unsigned short port)
+bool Session::Connect()
 {
-    tcp::resolver resolver(_socket.get_executor());
-    auto endpoints = resolver.resolve(host, std::to_string(port));
+    if (IsConnected())
+        return false;
 
-    asio::async_connect(_socket, endpoints,
-        [this](const std::error_code& error, const tcp::endpoint& endpoint) {
-            HandleConnect(error);
-        });
-
-    return true;
-}
-
-void Session::HandleConnect(const std::error_code& error)
-{
-    if (!error) {
-        _connected.store(true);
-        _endpoint = _socket.remote_endpoint();
-
-        // Add session to service
-        if (auto service = _service.lock())
-            service->AddSession(shared_from_this());
-
-        OnConnected();
-        StartReceive();
+    if (auto service = GetService())
+    {
+        const NetAddress& address = service->GetNetAddress();
+        _socket.async_connect(
+            address.GetEndpoint(),
+            [this](const std::error_code& error)
+            {
+                if (!error)
+                {
+                    ProcessConnect();
+                }
+                else
+                {
+                    HandleError(error);
+                }
+            });
+        return true;
     }
-    else {
-        HandleError(error);
-    }
+    return false;
 }
 
-void Session::Disconnect(const std::wstring& cause)
+void Session::Disconnect(const char* cause)
 {
-    if (!_connected.exchange(false))
+    if (_connected.exchange(false) == false)
         return;
 
-    std::wcout << L"Disconnect: " << cause << std::endl;
-
     std::error_code ec;
-    _socket.shutdown(tcp::socket::shutdown_both, ec);
+    _socket.shutdown(asio::ip::tcp::socket::shutdown_both, ec);
     _socket.close(ec);
 
     OnDisconnected();
-
-    if (auto service = _service.lock())
-        service->ReleaseSession(shared_from_this());
+    if (auto service = GetService())
+        service->ReleaseSession(GetSessionRef());
 }
 
-void Session::StartReceive()
+void Session::RegisterRecv()
 {
     if (!IsConnected())
         return;
 
-    auto self(shared_from_this());
     _socket.async_read_some(
-        asio::buffer(_receiveBuffer.data() + _writePos, _receiveBuffer.size() - _writePos),
-        [this, self](const std::error_code& error, size_t bytes_transferred) {
-            HandleReceive(error, bytes_transferred);
+        asio::buffer(_recvBuffer.WritePos(), _recvBuffer.FreeSize()),
+        [this](const std::error_code& error, size_t bytesTransferred)
+        {
+            if (!error)
+            {
+                ProcessRecv(bytesTransferred);
+            }
+            else
+            {
+                HandleError(error);
+            }
         });
 }
 
-void Session::HandleReceive(const std::error_code& error, size_t bytes_transferred)
-{
-    if (error) {
-        HandleError(error);
-        return;
-    }
-
-    if (bytes_transferred == 0) {
-        Disconnect(L"Recv 0");
-        return;
-    }
-
-    _writePos += bytes_transferred;
-
-    int32_t processLen = OnRecv(_receiveBuffer.data() + _readPos, _writePos - _readPos);
-    if (processLen < 0 || (_writePos - _readPos) < static_cast<size_t>(processLen)) {
-        Disconnect(L"OnRead Overflow");
-        return;
-    }
-
-    _readPos += processLen;
-
-    // Buffer cleanup
-    if (_readPos == _writePos) {
-        _readPos = _writePos = 0;
-    }
-    else if (_readPos > 0) {
-        std::memmove(_receiveBuffer.data(), _receiveBuffer.data() + _readPos, _writePos - _readPos);
-        _writePos -= _readPos;
-        _readPos = 0;
-    }
-
-    StartReceive();
-}
-
-void Session::StartSend()
+void Session::RegisterSend()
 {
     if (!IsConnected())
         return;
 
-    std::vector<asio::const_buffer> buffers;
+    std::vector<asio::const_buffer> sendBuffers;
     {
-        std::lock_guard<std::mutex> lock(_mutex);
-        while (!_sendQueue.empty()) {
-        //    SendBufferRef sendBuffer = _sendQueue.front();
-       //     buffers.push_back(asio::buffer(sendBuffer->Buffer(), sendBuffer->WriteSize()));
+        std::lock_guard<std::mutex> lock(_sendLock);
+        while (!_sendQueue.empty())
+        {
+            std::shared_ptr<SendBuffer> buffer = _sendQueue.front();
             _sendQueue.pop();
+            sendBuffers.push_back(asio::buffer(buffer->Buffer(), buffer->WriteSize()));
         }
     }
 
-    if (buffers.empty()) {
-        _sendRegistered.store(false);
-        return;
-    }
-
-    auto self(shared_from_this());
-    asio::async_write(_socket, buffers,
-        [this, self](const std::error_code& error, size_t bytes_transferred) {
-            HandleSend(error, bytes_transferred);
+    _socket.async_write_some(
+        sendBuffers,
+        [this](const std::error_code& error, size_t bytesTransferred)
+        {
+            if (!error)
+            {
+                ProcessSend(bytesTransferred);
+            }
+            else
+            {
+                HandleError(error);
+            }
         });
 }
 
-void Session::HandleSend(const std::error_code& error, size_t bytes_transferred)
+void Session::ProcessConnect()
 {
-    if (error) {
-        HandleError(error);
+    _connected.store(true);
+    OnConnected();
+
+    RegisterRecv();
+}
+
+void Session::ProcessRecv(size_t bytesTransferred)
+{
+    if (!IsConnected())
+        return;
+
+    if (!_recvBuffer.OnWrite(bytesTransferred))
+    {
+        Disconnect("Write Overflow");
         return;
     }
 
-    if (bytes_transferred == 0) {
-        Disconnect(L"Send 0");
+    int32_t dataSize = _recvBuffer.DataSize();
+    int32_t processLen = OnRecv(_recvBuffer.ReadPos(), dataSize);
+    if (processLen < 0 || dataSize < processLen || !_recvBuffer.OnRead(processLen))
+    {
+        Disconnect("Read Overflow");
         return;
     }
 
-    OnSend(bytes_transferred);
+    _recvBuffer.Clean();
+    RegisterRecv();
+}
 
-    std::lock_guard<std::mutex> lock(_mutex);
+void Session::ProcessSend(size_t bytesTransferred)
+{
+    if (!IsConnected())
+        return;
+
+    OnSend(bytesTransferred);
+
+    std::lock_guard<std::mutex> lock(_sendLock);
     if (_sendQueue.empty())
         _sendRegistered.store(false);
     else
-        StartSend();
+        RegisterSend();
 }
 
 void Session::HandleError(const std::error_code& error)
 {
-    if (error == asio::error::eof ||
+    if (error == asio::error::operation_aborted ||
         error == asio::error::connection_reset ||
-        error == asio::error::connection_aborted) {
-        Disconnect(L"Connection closed by peer");
+        error == asio::error::connection_aborted)
+    {
+        Disconnect("Error");
     }
-    else {
-        std::cout << "Handle Error: " << error.message() << std::endl;
+    else
+    {
+        // Log error
     }
+}
+
+/* PacketSession Implementation */
+int32_t PacketSession::OnRecv(BYTE* buffer, int32_t len)
+{
+    int32_t processLen = 0;
+
+    while (true)
+    {
+        int32_t dataSize = len - processLen;
+        if (dataSize < sizeof(PacketHeader))
+            break;
+
+        PacketHeader* header = reinterpret_cast<PacketHeader*>(&buffer[processLen]);
+        if (dataSize < header->size)
+            break;
+
+        OnRecvPacket(&buffer[processLen], header->size);
+        processLen += header->size;
+    }
+
+    return processLen;
 }

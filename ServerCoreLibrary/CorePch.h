@@ -5,7 +5,7 @@
 // 여기에 자주 업데이트할 파일을 추가하지 마세요. 그러면 성능이 저하됩니다.
 
 #pragma once
-
+#define _WIN32_WINNT 0x0601  // Windows 7 이상
 // 여기에 미리 컴파일하려는 헤더 추가
 #include "framework.h"
 
