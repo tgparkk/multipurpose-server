@@ -5,14 +5,11 @@
 
 #include "ThreadManager.h"
 
-Service::Service(ServiceType type,
-    const asio::ip::tcp::endpoint& endpoint,
-    asio::io_context& ioc,
-    SessionFactory factory,
-    int32_t maxSessionCount)
-    : _type(type)
-    , _endpoint(endpoint)
-    , _ioContext(ioc)
+Service::Service(ServiceType type, asio::io_context& ioc, const NetAddress& address,
+    SessionFactory factory, int32_t maxSessionCount)
+    : _ioc(ioc)
+    , _type(type)
+    , _netAddress(address)
     , _sessionFactory(factory)
     , _maxSessionCount(maxSessionCount)
 {
@@ -25,46 +22,37 @@ Service::~Service()
 
 void Service::CloseService()
 {
-    std::set<std::shared_ptr<Session>> sessions;
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
-        sessions = _sessions;
-    }
-
-    for (auto& session : sessions)
-        session->Disconnect(L"Service closed");
-
-    sessions.clear();
-}
-
-/*
-void Service::Broadcast(SendBufferRef sendBuffer)
-{
-    std::lock_guard<std::mutex> lock(_mutex);
+    std::unique_lock<std::recursive_mutex> lock(_lock);
     for (const auto& session : _sessions)
-    {
-        session->Send(sendBuffer);
-    }
-}
-*/
+        //session->Disconnect("Service Close");
 
-std::shared_ptr<Session> Service::CreateSession()
+    _sessions.clear();
+}
+
+void Service::Broadcast(std::shared_ptr<SendBuffer> sendBuffer)
 {
-    std::shared_ptr<Session> session = _sessionFactory(_ioContext);
+    std::unique_lock<std::recursive_mutex> lock(_lock);
+    for (const auto& session : _sessions)
+        session->Send(sendBuffer);
+}
+
+SessionRef Service::CreateSession()
+{
+    SessionRef session = _sessionFactory(_ioc);
     session->SetService(shared_from_this());
     return session;
 }
 
-void Service::AddSession(std::shared_ptr<Session> session)
+void Service::AddSession(SessionRef session)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
-    _sessionCount++;
+    std::unique_lock<std::recursive_mutex> lock(_lock);
     _sessions.insert(session);
+    _sessionCount++;
 }
 
-void Service::ReleaseSession(std::shared_ptr<Session> session)
+void Service::ReleaseSession(SessionRef session)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
+    std::unique_lock<std::recursive_mutex> lock(_lock);
     _sessions.erase(session);
     _sessionCount--;
 }
@@ -72,12 +60,9 @@ void Service::ReleaseSession(std::shared_ptr<Session> session)
 /*-----------------
     ClientService
 ------------------*/
-
-ClientService::ClientService(const asio::ip::tcp::endpoint& targetEndpoint,
-    asio::io_context& ioc,
-    SessionFactory factory,
-    int32_t maxSessionCount)
-    : Service(ServiceType::Client, targetEndpoint, ioc, factory, maxSessionCount)
+ClientService::ClientService(asio::io_context& ioc, const NetAddress& targetAddress,
+    SessionFactory factory, int32_t maxSessionCount)
+    : Service(ServiceType::Client, ioc, targetAddress, factory, maxSessionCount)
 {
 }
 
@@ -86,11 +71,10 @@ bool ClientService::Start()
     if (!CanStart())
         return false;
 
-    const int32_t sessionCount = GetMaxSessionCount();
-    for (int32_t i = 0; i < sessionCount; i++)
+    for (int32_t i = 0; i < GetMaxSessionCount(); i++)
     {
-        std::shared_ptr<Session> session = CreateSession();
-        if (!session->Connect(_endpoint.address().to_string(), _endpoint.port()))
+        SessionRef session = CreateSession();
+        if (!session->Connect())
             return false;
     }
 
@@ -100,13 +84,15 @@ bool ClientService::Start()
 /*-----------------
     ServerService
 ------------------*/
-
-ServerService::ServerService(const asio::ip::tcp::endpoint& endpoint,
-    asio::io_context& ioc,
-    SessionFactory factory,
-    int32_t maxSessionCount)
-    : Service(ServiceType::Server, endpoint, ioc, factory, maxSessionCount)
+ServerService::ServerService(asio::io_context& ioc, const NetAddress& address,
+    SessionFactory factory, int32_t maxSessionCount)
+    : Service(ServiceType::Server, ioc, address, factory, maxSessionCount)
 {
+}
+
+ServerService::~ServerService()
+{
+    CloseService();
 }
 
 bool ServerService::Start()
@@ -114,21 +100,40 @@ bool ServerService::Start()
     if (!CanStart())
         return false;
 
-    _listener = std::make_shared<Listener>(_ioContext, _endpoint);
-    if (!_listener)
+    std::error_code ec;
+    auto endpoint = _netAddress.GetEndpoint();
+
+    _acceptor = std::make_unique<asio::ip::tcp::acceptor>(_ioc, endpoint);
+    if (_acceptor->is_open() == false)
         return false;
 
-    auto service = std::static_pointer_cast<ServerService>(shared_from_this());
-    if (!_listener->StartAccept(service))
-        return false;
-
+    StartAccept();
     return true;
 }
 
 void ServerService::CloseService()
 {
-    if (_listener)
-        _listener->Stop();
+    if (_acceptor)
+        _acceptor->close();
 
     Service::CloseService();
+}
+
+void ServerService::StartAccept()
+{
+    SessionRef session = CreateSession();
+
+    _acceptor->async_accept(
+        session->GetSocket(),
+        [this, session](const std::error_code& error)
+        {
+            if (!error)
+            {
+                session->OnConnected();
+                AddSession(session);
+            }
+
+            StartAccept(); // Continue accepting
+        }
+    );
 }

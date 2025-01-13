@@ -3,24 +3,84 @@
 #include "Session.h"
 #include "ThreadManager.h"
 #include "CorePch.h"
+#include "Service.h"
+
 
 CoreGlobal Core;
 
-void ThreadMain()
+using namespace std;
+
+enum PacketId
 {
-	while (true)
-	{
-		std::cout << "Hello ! I am thread... " << LThreadId << std::endl;
-		std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-	}
-}
+    PKT_C_CHAT = 1,
+    PKT_S_CHAT = 2
+};
 
+struct ChatData
+{
+    char msg[100]; // 메시지 최대 99자 + null
+};
 
-int main() {
-	for (__int32 i = 0; i < 5; i++)
-	{
-		GThreadManager->Launch(ThreadMain);
-	}
+class GameSession : public PacketSession
+{
+public:
+    GameSession(asio::io_context& ioc) : PacketSession(ioc) {}
 
-	GThreadManager->Join();
+    virtual void OnConnected() override
+    {
+        cout << "Client Connected" << endl;
+    }
+
+    virtual void OnRecvPacket(BYTE* buffer, int32_t len) override
+    {
+        PacketHeader* header = reinterpret_cast<PacketHeader*>(buffer);
+
+        if (header->id == PKT_C_CHAT)
+        {
+            ChatData* chatData = reinterpret_cast<ChatData*>(buffer + sizeof(PacketHeader));
+            cout << "Client Says: " << chatData->msg << endl;
+
+            // 에코 응답
+            SendBufferRef sendBuffer = GSendBufferManager->Open(sizeof(PacketHeader) + sizeof(ChatData));
+            PacketHeader* resHeader = reinterpret_cast<PacketHeader*>(sendBuffer->Buffer());
+            ChatData* resData = reinterpret_cast<ChatData*>(sendBuffer->Buffer() + sizeof(PacketHeader));
+
+            resHeader->size = sizeof(PacketHeader) + sizeof(ChatData);
+            resHeader->id = PKT_S_CHAT;
+            strcpy_s(resData->msg, "Server received your message!");
+
+            sendBuffer->Close(resHeader->size);
+            Send(sendBuffer);
+        }
+    }
+};
+
+int main()
+{
+    asio::io_context ioc;
+
+    auto service = make_shared<ServerService>(
+        ioc,
+        NetAddress("127.0.0.1", 7777),
+        [](asio::io_context& ioc) { return make_shared<GameSession>(ioc); },
+        100);
+
+    std::cout << "Server Starting..." << std::endl;
+    service->Start();
+    std::cout << "Server Started" << std::endl;
+
+    // 서버가 계속 실행되도록 유지
+    std::vector<std::thread> threads;
+    for (int32_t i = 0; i < 4; i++)
+    {
+        threads.push_back(std::thread([&ioc]()
+            {
+                ioc.run();
+            }));
+    }
+
+    for (auto& t : threads)
+        t.join();
+
+    return 0;
 }
