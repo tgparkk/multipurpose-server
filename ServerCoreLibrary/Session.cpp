@@ -82,17 +82,32 @@ void Session::RegisterRecv()
     if (!IsConnected())
         return;
 
-    _socket.async_read_some(
-        asio::buffer(_recvBuffer.WritePos(), _recvBuffer.FreeSize()),
+    BYTE* buffer = _recvBuffer.WritePos();
+    int32_t len = _recvBuffer.FreeSize();
+
+    GetSocket().async_read_some(
+        asio::buffer(buffer, len),
         [this](const std::error_code& error, size_t bytesTransferred)
         {
             if (!error)
             {
-                ProcessRecv(bytesTransferred);
+                if (_recvBuffer.OnWrite(bytesTransferred))
+                {
+                    int32_t dataSize = _recvBuffer.DataSize();
+                    int32_t processLen = OnRecv(_recvBuffer.ReadPos(), dataSize);
+                    if (processLen < 0 || dataSize < processLen || !_recvBuffer.OnRead(processLen))
+                    {
+                        Disconnect("Read Overflow");
+                        return;
+                    }
+
+                    _recvBuffer.Clean();
+                    RegisterRecv();  // 다음 수신 대기
+                }
             }
             else
             {
-                HandleError(error);
+                Disconnect("RegisterRecv Error");
             }
         });
 }
@@ -132,31 +147,7 @@ void Session::ProcessConnect()
 {
     _connected.store(true);
     OnConnected();
-
-    RegisterRecv();
-}
-
-void Session::ProcessRecv(size_t bytesTransferred)
-{
-    if (!IsConnected())
-        return;
-
-    if (!_recvBuffer.OnWrite(bytesTransferred))
-    {
-        Disconnect("Write Overflow");
-        return;
-    }
-
-    int32_t dataSize = _recvBuffer.DataSize();
-    int32_t processLen = OnRecv(_recvBuffer.ReadPos(), dataSize);
-    if (processLen < 0 || dataSize < processLen || !_recvBuffer.OnRead(processLen))
-    {
-        Disconnect("Read Overflow");
-        return;
-    }
-
-    _recvBuffer.Clean();
-    RegisterRecv();
+    RegisterRecv();  // 이 부분이 반드시 필요합니다
 }
 
 void Session::ProcessSend(size_t bytesTransferred)

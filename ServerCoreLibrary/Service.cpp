@@ -121,19 +121,33 @@ void ServerService::CloseService()
 
 void ServerService::StartAccept()
 {
-    SessionRef session = CreateSession();
+    // 최대 세션 수 체크
+    if (GetCurrentSessionCount() >= GetMaxSessionCount())
+    {
+        std::cout << "Max sessions reached!" << std::endl;
+        return;
+    }
 
+    SessionRef session = CreateSession();
     _acceptor->async_accept(
         session->GetSocket(),
         [this, session](const std::error_code& error)
         {
             if (!error)
             {
-                session->OnConnected();
-                AddSession(session);
+                if (GetCurrentSessionCount() < GetMaxSessionCount())
+                {
+                    session->ProcessConnect();
+                    AddSession(session);
+                }
+                else
+                {
+                    // 세션 수가 초과되면 연결 거부
+                    session->Disconnect("Max sessions");
+                }
             }
 
-            StartAccept(); // Continue accepting
+            StartAccept(); // 다음 연결 대기
         }
     );
 }

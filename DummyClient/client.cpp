@@ -2,6 +2,9 @@
 
 #include "Session.h"
 #include "Service.h"
+#include "CorePch.h"
+
+CoreGlobal Core;
 
 using namespace std;
 
@@ -16,12 +19,12 @@ struct ChatData
     char msg[100]; // 메시지 최대 99자 + null
 };
 
-class ServerSession : public PacketSession
+class ClientSession : public PacketSession
 {
     static const vector<string> RANDOM_MESSAGES;
 
 public:
-    ServerSession(asio::io_context& ioc)
+    ClientSession(asio::io_context& ioc)
         : PacketSession(ioc)
         , _timer(ioc)
     {
@@ -47,7 +50,6 @@ public:
         }
     }
 
-    // SendChatPacket 함수 추가
     void SendChatPacket(const char* msg)
     {
         SendBufferRef sendBuffer = GSendBufferManager->Open(sizeof(PacketHeader) + sizeof(ChatData));
@@ -83,7 +85,7 @@ private:
     asio::steady_timer _timer;
 };
 
-const vector<string> ServerSession::RANDOM_MESSAGES = {
+const vector<string> ClientSession::RANDOM_MESSAGES = {
     "Hello from Client!",
     "How are you doing?",
     "Nice weather today!",
@@ -102,7 +104,7 @@ int main()
 
     asio::io_context ioc;
 
-    shared_ptr<ServerSession> session = make_shared<ServerSession>(ioc);
+    shared_ptr<ClientSession> session = make_shared<ClientSession>(ioc);
     auto service = make_shared<ClientService>(
         ioc,
         NetAddress("127.0.0.1", 7777),
