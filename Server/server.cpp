@@ -53,6 +53,23 @@ public:
             Send(sendBuffer);
         }
     }
+
+    void SendChatPacket(const char* msg)
+    {
+        SendBufferRef sendBuffer = GSendBufferManager->Open(sizeof(PacketHeader) + sizeof(ChatData));
+        if (sendBuffer == nullptr)
+            return;
+
+        PacketHeader* header = reinterpret_cast<PacketHeader*>(sendBuffer->Buffer());
+        ChatData* chatData = reinterpret_cast<ChatData*>(sendBuffer->Buffer() + sizeof(PacketHeader));
+
+        header->size = sizeof(PacketHeader) + sizeof(ChatData);
+        header->id = PKT_C_CHAT;
+        strcpy_s(chatData->msg, msg);
+
+        sendBuffer->Close(header->size);
+        Send(sendBuffer);
+    }
 };
 
 int main()
