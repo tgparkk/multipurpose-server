@@ -59,6 +59,8 @@ public:
         PacketHeader* header = reinterpret_cast<PacketHeader*>(sendBuffer->Buffer());
         ChatData* chatData = reinterpret_cast<ChatData*>(sendBuffer->Buffer() + sizeof(PacketHeader));
 
+        cout << "Client Says: " << msg << endl;
+
         header->size = sizeof(PacketHeader) + sizeof(ChatData);
         header->id = PKT_C_CHAT;
         strcpy_s(chatData->msg, msg);
