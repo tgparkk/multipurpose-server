@@ -50,14 +50,14 @@ protected:
 
 private:
     /* Network Core */
-    void                RegisterConnect();
-    void                RegisterDisconnect();
+    //void                RegisterConnect();
+    //void                RegisterDisconnect();
     void                RegisterRecv();
     void                RegisterSend();
 
     void                ProcessConnect();
-    void                ProcessDisconnect();
-    void                ProcessRecv(size_t bytesTransferred);
+    //void                ProcessDisconnect();
+    //void                ProcessRecv(size_t bytesTransferred);
     void                ProcessSend(size_t bytesTransferred);
 
     void                HandleError(const std::error_code& error);

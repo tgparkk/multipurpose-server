@@ -88,7 +88,7 @@ private:
 };
 
 const vector<string> ClientSession::RANDOM_MESSAGES = {
-    "Hello from Client!",
+    "Hello from Client!--------------------------------------------------------",
     "How are you doing?",
     "Nice weather today!",
     "I'm a happy client!",
@@ -103,28 +103,43 @@ const vector<string> ClientSession::RANDOM_MESSAGES = {
 int main()
 {
     srand(static_cast<unsigned>(time(nullptr)));
-
     asio::io_context ioc;
 
-    shared_ptr<ClientSession> session = make_shared<ClientSession>(ioc);
-    auto service = make_shared<ClientService>(
-        ioc,
-        NetAddress("127.0.0.1", 7777),
-        [&](asio::io_context& ioc) { return session; },
-        1);
+    // 클라이언트 수 설정
+    const int CLIENT_COUNT = 200;
+    vector<shared_ptr<ClientSession>> sessions;
+    vector<shared_ptr<ClientService>> services;
 
-    cout << "Client Starting..." << endl;
-    service->Start();
-    cout << "Client Started" << endl;
+    // 여러 클라이언트 생성
+    for (int i = 0; i < CLIENT_COUNT; i++)
+    {
+        auto session = make_shared<ClientSession>(ioc);
+        auto service = make_shared<ClientService>(
+            ioc,
+            NetAddress("127.0.0.1", 7777),
+            [session](asio::io_context& ioc) { return session; },
+            1);
 
-    // 클라이언트가 계속 실행되도록 유지
+        sessions.push_back(session);
+        services.push_back(service);
+
+        // 각 서비스 시작
+        service->Start();
+    }
+
+    // worker 스레드 생성 (클라이언트 수에 따라 적절히 조정)
     vector<thread> threads;
-    threads.push_back(thread([&ioc]()
-        {
-            ioc.run();
-        }));
+    int threadCount = min(CLIENT_COUNT, 4); // 최대 4개 스레드 사용
 
-    // 메인 스레드에서 'q'를 입력받으면 종료
+    for (int i = 0; i < threadCount; i++)
+    {
+        threads.push_back(thread([&ioc]()
+            {
+                ioc.run();
+            }));
+    }
+
+    // 메인 루프
     while (true)
     {
         string cmd;
@@ -133,6 +148,7 @@ int main()
             break;
     }
 
+    // 정리
     ioc.stop();
     for (auto& t : threads)
         t.join();

@@ -61,7 +61,8 @@ int main()
 
     auto service = make_shared<ServerService>(
         ioc,
-        NetAddress("127.0.0.1", 7777),
+        //NetAddress("127.0.0.1", 7777),
+        NetAddress("0.0.0.0", 7777),
         [](asio::io_context& ioc) { return make_shared<GameSession>(ioc); },
         100);
 
