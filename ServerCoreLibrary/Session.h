@@ -3,6 +3,7 @@
 #include "RecvBuffer.h"
 #include "SendBuffer.h"
 #include "NetAddress.h"
+#include "AsioEvent.h"
 
 using asio::ip::tcp;
 
@@ -10,6 +11,7 @@ class RecvBuffer;
 class Service;
 class SendBuffer;
 using SendBufferRef = std::shared_ptr<SendBuffer>;
+class AsioEvent;
 
 class Session : public std::enable_shared_from_this<Session>
 {
@@ -41,6 +43,9 @@ public:
     bool                IsConnected() { return _connected; }
     std::shared_ptr<Session> GetSessionRef() { return std::static_pointer_cast<Session>(shared_from_this()); }
 
+private:
+    void Dispatch(EventType type, size_t bytes);
+
 protected:
     /* 컨텐츠 코드에서 재정의 */
     virtual void        OnConnected() {}
@@ -56,8 +61,8 @@ private:
     void                RegisterSend();
 
     void                ProcessConnect();
-    //void                ProcessDisconnect();
-    //void                ProcessRecv(size_t bytesTransferred);
+    void                ProcessDisconnect();
+    void                ProcessRecv(size_t bytesTransferred);
     void                ProcessSend(size_t bytesTransferred);
 
     void                HandleError(const std::error_code& error);

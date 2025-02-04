@@ -106,7 +106,7 @@ int main()
     asio::io_context ioc;
 
     // 클라이언트 수 설정
-    const int CLIENT_COUNT = 200;
+    const int CLIENT_COUNT = 1;
     vector<shared_ptr<ClientSession>> sessions;
     vector<shared_ptr<ClientService>> services;
 
