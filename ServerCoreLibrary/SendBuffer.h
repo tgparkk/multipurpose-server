@@ -27,6 +27,7 @@ private:
 --------------------*/
 class SendBufferChunk : public std::enable_shared_from_this<SendBufferChunk>
 {
+public:
     enum { SEND_BUFFER_CHUNK_SIZE = 6000 };
 
 public:
