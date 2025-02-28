@@ -3,6 +3,7 @@
 #include "Service.h"
 #include "CorePch.h"
 #include "FileTransfer.h"
+#include "ThreadManager.h"
 
 CoreGlobal Core;
 
@@ -80,20 +81,26 @@ public:
 
     void SendChatPacket(const char* msg)
     {
+        // 1. SendBuffer 할당 요청
         SendBufferRef sendBuffer = GSendBufferManager->Open(sizeof(PacketHeader) + sizeof(ChatData));
         if (sendBuffer == nullptr)
             return;
 
+        // 2. 버퍼에 데이터 구성
         PacketHeader* header = reinterpret_cast<PacketHeader*>(sendBuffer->Buffer());
         ChatData* chatData = reinterpret_cast<ChatData*>(sendBuffer->Buffer() + sizeof(PacketHeader));
 
         cout << "Client Says: " << msg << endl;
 
+        // 3. 헤더와 데이터 채우기
         header->size = sizeof(PacketHeader) + sizeof(ChatData);
         header->id = PKT_C_CHAT;
         strcpy_s(chatData->msg, msg);
 
+        // 4. 버퍼 닫기 (실제 쓰인 크기 설정)
         sendBuffer->Close(header->size);
+
+        // 5. 전송 요청
         Send(sendBuffer);
     }
 
@@ -199,18 +206,17 @@ int main()
     service->Start();
 
     // IO 스레드 생성
-    vector<thread> threads;
-    threads.push_back(thread([&ioc]() {
-        ioc.run();
-        }));
+    GThreadManager->Launch([&ioc]()
+        {
+            ioc.run();
+        });
 
     // 메인 스레드에서 사용자 입력 처리
     ProcessUserCommands(session);
 
     // 종료 처리
     ioc.stop();
-    for (auto& t : threads)
-        t.join();
+    GThreadManager->Join();
 
     return 0;
 }
