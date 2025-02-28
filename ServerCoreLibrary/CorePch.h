@@ -9,12 +9,22 @@
 // 여기에 미리 컴파일하려는 헤더 추가
 #include "framework.h"
 
+using BYTE = unsigned char;
+using int8 = __int8;
+using int16 = __int16;
+using int32 = __int32;
+using int64 = __int64;
+using uint8 = unsigned __int8;
+using uint16 = unsigned __int16;
+using uint32 = unsigned __int32;
+using uint64 = unsigned __int64;
+
+#include <asio.hpp>
+#include <memory>
+
 #include "CoreTLS.h"
 #include "CoreGlobal.h"
 
-#include <asio.hpp>
-
-#include <memory>
 #include <vector>
 #include <thread>
 #include <mutex>
@@ -24,3 +34,7 @@
 #include <queue>
 #include <set>
 #include <functional>
+
+#include "SendBuffer.h"
+#include "Session.h"
+
