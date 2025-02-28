@@ -24,7 +24,7 @@ void Service::CloseService()
 {
     std::unique_lock<std::recursive_mutex> lock(_lock);
     for (const auto& session : _sessions)
-        //session->Disconnect("Service Close");
+        session->Disconnect("Service Close");
 
     _sessions.clear();
 }

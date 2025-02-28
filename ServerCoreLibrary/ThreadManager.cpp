@@ -36,7 +36,7 @@ void ThreadManager::Join()
 
 void ThreadManager::InitTLS()
 {
-	static std::atomic<__int32> SThreadId = 1;
+	static std::atomic<uint32> SThreadId = 1;
 	LThreadId = SThreadId.fetch_add(1);
 }
 

@@ -54,7 +54,6 @@ void SendBufferChunk::Close(uint32_t writeSize)
 /*---------------------
     SendBufferManager
 ----------------------*/
-thread_local std::shared_ptr<SendBufferChunk> LSendBufferChunk;
 
 std::shared_ptr<SendBuffer> SendBufferManager::Open(uint32_t size)
 {
