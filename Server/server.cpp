@@ -89,6 +89,11 @@ public:
         std::cout << "Client Connected" << std::endl;
     }
 
+    virtual void OnDisconnected() override
+    {
+        std::cout << "Client DisConnected" << std::endl;
+    }
+
     virtual void OnRecvPacket(BYTE* buffer, int32_t len) override
     {
         PacketHeader* header = reinterpret_cast<PacketHeader*>(buffer);

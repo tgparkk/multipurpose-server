@@ -28,7 +28,8 @@ private:
 class SendBufferChunk : public std::enable_shared_from_this<SendBufferChunk>
 {
 public:
-    enum { SEND_BUFFER_CHUNK_SIZE = 6000 };
+    // 파일 전송을 위해 크기 증가 (6KB → 64KB)
+    enum { SEND_BUFFER_CHUNK_SIZE = 65536 };
 
 public:
     SendBufferChunk();

@@ -138,7 +138,7 @@ void ServerService::StartAccept()
                 if (GetCurrentSessionCount() < GetMaxSessionCount())
                 {
                     session->ProcessConnect();
-                    AddSession(session);
+                    //AddSession(session);
                 }
                 else
                 {
