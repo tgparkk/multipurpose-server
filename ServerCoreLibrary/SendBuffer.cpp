@@ -29,13 +29,18 @@ void SendBufferChunk::Reset()
 
 std::shared_ptr<SendBuffer> SendBufferChunk::Open(uint32_t allocSize)
 {
+    // 1. 크기 확인
     assert(allocSize <= SEND_BUFFER_CHUNK_SIZE);
     assert(_open == false);
 
+    // 2. 공간 부족 시 nullptr 반환
     if (allocSize > FreeSize())
         return nullptr;
 
+    // 3. 사용 중 표시
     _open = true;
+
+    // 4. SendBuffer 생성하여 반환
     return std::make_shared<SendBuffer>(shared_from_this(), Buffer(), allocSize);
 }
 
@@ -53,20 +58,24 @@ thread_local std::shared_ptr<SendBufferChunk> LSendBufferChunk;
 
 std::shared_ptr<SendBuffer> SendBufferManager::Open(uint32_t size)
 {
+    // 1. 스레드별 SendBufferChunk 확인/할당
     if (LSendBufferChunk == nullptr)
     {
-        LSendBufferChunk = Pop();
+        LSendBufferChunk = Pop();  // 청크 풀에서 가져오거나 새로 생성
         LSendBufferChunk->Reset();
     }
 
+    // 2. 청크가 열려있지 않은지 확인
     assert(LSendBufferChunk->IsOpen() == false);
 
+    // 3. 공간이 부족하면 새 청크 할당
     if (LSendBufferChunk->FreeSize() < size)
     {
         LSendBufferChunk = Pop();
         LSendBufferChunk->Reset();
     }
 
+    // 4. 버퍼 열기
     return LSendBufferChunk->Open(size);
 }
 

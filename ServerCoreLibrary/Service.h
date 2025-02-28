@@ -72,6 +72,7 @@ public:
 class ServerService : public Service
 {
 public:
+    //using SessionFactory = std::function<SessionRef(asio::io_context&)>;
     ServerService(asio::io_context& ioc, const NetAddress& address,
         SessionFactory factory, int32_t maxSessionCount = 1);
     virtual ~ServerService();

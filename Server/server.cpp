@@ -96,21 +96,25 @@ public:
         // 중요: 패킷 ID 로깅
         std::cout << "Received packet with ID: " << header->id << ", Size: " << header->size << std::endl;
 
+        // 1. 패킷 데이터 추출
         // 일반 채팅 메시지 처리
         if (header->id == PKT_C_CHAT)
         {
             ChatData* chatData = reinterpret_cast<ChatData*>(buffer + sizeof(PacketHeader));
             std::cout << "Client Says: " << chatData->msg << std::endl;
 
+            // 2. 응답 패킷 생성
             // 에코 응답
             SendBufferRef sendBuffer = GSendBufferManager->Open(sizeof(PacketHeader) + sizeof(ChatData));
             PacketHeader* resHeader = reinterpret_cast<PacketHeader*>(sendBuffer->Buffer());
             ChatData* resData = reinterpret_cast<ChatData*>(sendBuffer->Buffer() + sizeof(PacketHeader));
 
+            // 3. 응답 데이터 구성
             resHeader->size = sizeof(PacketHeader) + sizeof(ChatData);
             resHeader->id = PKT_S_CHAT;
             strcpy_s(resData->msg, "Server received your message!");
 
+            // 4. 버퍼 닫고 전송
             sendBuffer->Close(resHeader->size);
             Send(sendBuffer);
         }
@@ -226,13 +230,12 @@ int main()
     std::cout << "File Transfer Server Started" << std::endl;
 
     // 서버가 계속 실행되도록 유지
-    std::vector<std::thread> threads;
     for (int32_t i = 0; i < 4; i++)
     {
-        threads.push_back(std::thread([&ioc]()
+        GThreadManager->Launch([&ioc]()
             {
                 ioc.run();
-            }));
+            });
     }
 
     // 메인 스레드에서 명령어 처리
@@ -305,8 +308,7 @@ int main()
 
     // 종료 처리
     ioc.stop();
-    for (auto& t : threads)
-        t.join();
+    GThreadManager->Join();
 
     return 0;
 }

@@ -22,18 +22,22 @@ void Session::Start()
 
 void Session::Send(std::shared_ptr<SendBuffer> sendBuffer)
 {
+    // 1. 연결 상태 확인
     if (!IsConnected())
         return;
 
     bool registerSend = false;
     {
+        // 2. 전송 큐에 버퍼 추가 (스레드 안전을 위한 락 사용)
         std::lock_guard<std::mutex> lock(_sendLock);
         _sendQueue.push(sendBuffer);
-        // 현재 진행 중인 send 작업이 없을 때만 새로운 send 작업을 등록
+
+        // 3. 전송 진행 중이 아니면 전송 등록 필요
         if (_sendRegistered.exchange(true) == false)
             registerSend = true;
     }
 
+    // 4. 필요시 전송 등록
     if (registerSend)
         RegisterSend();
 }
@@ -92,30 +96,47 @@ void Session::Dispatch(EventType type, size_t bytes)
 
 void Session::RegisterRecv()
 {
+    // 1. 연결 상태 확인
     if (!IsConnected())
         return;
 
-    BYTE* buffer = _recvBuffer.WritePos();
-    int32_t len = _recvBuffer.FreeSize();
+    // 2. 수신 버퍼 준비
+    BYTE* buffer = _recvBuffer.WritePos();  // 데이터를 쓸 위치
+    int32_t len = _recvBuffer.FreeSize();   // 쓸 수 있는 공간
 
+
+/*
+    GetSocket().async_read_some(
+    asio::buffer(buffer, len),
+    [...콜백함수...]
+    );
+*/
+
+    // 3. 비동기 수신 등록
     GetSocket().async_read_some(
         asio::buffer(buffer, len),
         [this](const std::error_code& error, size_t bytesTransferred)
         {
+            // 4. 수신 성공 시
             if (!error)
             {
+                // 5. 버퍼에 쓰기 처리
                 if (_recvBuffer.OnWrite(bytesTransferred))
                 {
+                    // 6. 데이터 처리
                     int32_t dataSize = _recvBuffer.DataSize();
                     int32_t processLen = OnRecv(_recvBuffer.ReadPos(), dataSize);
+
+                    // 7. 처리 결과 확인
                     if (processLen < 0 || dataSize < processLen || !_recvBuffer.OnRead(processLen))
                     {
                         Disconnect("Read Overflow");
                         return;
                     }
 
+                    // 8. 버퍼 정리 및 다시 수신 등록
                     _recvBuffer.Clean();
-                    RegisterRecv();  // 다음 수신 대기
+                    RegisterRecv();
                 }
             }
             else
@@ -127,35 +148,37 @@ void Session::RegisterRecv()
 
 void Session::RegisterSend()
 {
+    // 1. 연결 상태 확인
     if (!IsConnected())
         return;
 
-    // 보낼 데이터 준비
+    // 2. 전송할 데이터 준비
     std::vector<asio::const_buffer> sendBuffers;
     std::vector<std::shared_ptr<SendBuffer>> pendingBuffers;
     {
         std::lock_guard<std::mutex> lock(_sendLock);
         while (!_sendQueue.empty()) {
-            auto buffer = _sendQueue.front();
-            _sendQueue.pop();
+            auto buffer = _sendQueue.front(); // shared_ptr 복사 (참조 카운트 증가)
+            _sendQueue.pop(); // 큐에서 제거 (참조 카운트 감소할 수 있음)
 
-            pendingBuffers.push_back(buffer);  // 참조 유지를 위해 저장
+            pendingBuffers.push_back(buffer);  // 참조 유지용 // 다시 복사하여 저장 (참조 카운트 증가)
             sendBuffers.push_back(
                 asio::buffer(buffer->Buffer(), buffer->WriteSize())
             );
         }
     }
 
-    // 보낼 데이터가 없다면 종료
+    // 3. 전송할 데이터가 없으면 상태 변경 후 종료
     if (sendBuffers.empty()) {
         _sendRegistered.store(false);
         return;
     }
 
-    // 비동기 쓰기 작업 등록
+    // 4. 비동기 전송 등록
     auto self = shared_from_this();  // 수명 관리
     _socket.async_write_some(
         sendBuffers,
+        // pendingBuffers가 콜백에 캡처됨 (참조 카운트 유지)
         [this, self, pendingBuffers](const std::error_code& error, size_t bytesTransferred) {
             if (!error) {
                 Dispatch(EventType::Send, bytesTransferred);
@@ -232,19 +255,27 @@ int32_t PacketSession::OnRecv(BYTE* buffer, int32_t len)
 {
     int32_t processLen = 0;
 
+    // 버퍼에 있는 모든 완전한 패킷 처리
     while (true)
     {
+        // 1. 최소 패킷 헤더 크기 확인
         int32_t dataSize = len - processLen;
         if (dataSize < sizeof(PacketHeader))
             break;
 
+        // 2. 패킷 헤더 추출
         PacketHeader* header = reinterpret_cast<PacketHeader*>(&buffer[processLen]);
+
+        // 3. 완전한 패킷인지 확인
         if (dataSize < header->size)
             break;
 
+        // 4. 패킷 처리
         OnRecvPacket(&buffer[processLen], header->size);
+
+        // 5. 처리된 길이 업데이트
         processLen += header->size;
     }
 
-    return processLen;
+    return processLen;  // 처리된 총 길이 반환
 }

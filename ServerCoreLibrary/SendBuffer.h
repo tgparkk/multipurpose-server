@@ -16,10 +16,10 @@ public:
     void            Close(uint32_t writeSize);
 
 private:
-    BYTE* _buffer;
-    uint32_t        _allocSize = 0;
-    uint32_t        _writeSize = 0;
-    std::shared_ptr<SendBufferChunk> _owner;
+    BYTE* _buffer;     // 실제 버퍼 포인터
+    uint32_t        _allocSize = 0;   // 할당된 크기
+    uint32_t        _writeSize = 0;   // 실제 쓰인 크기
+    std::shared_ptr<SendBufferChunk> _owner;  // 소유자 청크
 };
 
 /*--------------------
@@ -43,9 +43,9 @@ public:
     uint32_t                    FreeSize() const { return static_cast<uint32_t>(_buffer.size()) - _usedSize; }
 
 private:
-    std::vector<BYTE>          _buffer;
-    bool                       _open = false;
-    uint32_t                   _usedSize = 0;
+    std::vector<BYTE>          _buffer;  // 청크 버퍼
+    bool                       _open = false;  // 사용 중 여부
+    uint32_t                   _usedSize = 0;  // 사용된 크기
 };
 
 /*---------------------
