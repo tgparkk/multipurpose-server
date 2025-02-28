@@ -71,6 +71,9 @@ std::shared_ptr<SendBuffer> SendBufferManager::Open(uint32_t size)
     // 3. 공간이 부족하면 새 청크 할당
     if (LSendBufferChunk->FreeSize() < size)
     {
+        // 현재 청크를 재활용 큐에 푸시 (기존에 없던 부분)
+        Push(LSendBufferChunk);
+
         LSendBufferChunk = Pop();
         LSendBufferChunk->Reset();
     }
@@ -90,15 +93,21 @@ std::shared_ptr<SendBufferChunk> SendBufferManager::Pop()
         return sendBufferChunk;
     }
 
-    return std::make_shared<SendBufferChunk>();
+    // 새 청크 생성 - PushGlobal을 사용하여 자동 반환
+    return std::shared_ptr<SendBufferChunk>(new SendBufferChunk(), PushGlobal);
 }
 
 void SendBufferManager::Push(std::shared_ptr<SendBufferChunk> buffer)
 {
+    // 스레드 로컬 버퍼와 동일하면 무시 (중복 푸시 방지)
+    if (LSendBufferChunk == buffer)
+        return;
+
     std::lock_guard<std::mutex> lock(_lock);
     _sendBufferChunks.push_back(buffer);
 }
 
+// 청크 소멸 시 자동으로 호출되는 정적 함수 (사용자 정의 소멸자)
 void SendBufferManager::PushGlobal(SendBufferChunk* buffer)
 {
     GSendBufferManager->Push(std::shared_ptr<SendBufferChunk>(buffer, PushGlobal));
