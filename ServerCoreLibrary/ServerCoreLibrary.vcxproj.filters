@@ -13,6 +13,9 @@
     <Filter Include="Main">
       <UniqueIdentifier>{d386e9f0-23c5-4935-a8a8-9dac625c1492}</UniqueIdentifier>
     </Filter>
+    <Filter Include="memory">
+      <UniqueIdentifier>{53c34ddd-8be7-47da-a58f-d097d9ade2bf}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Session.h">
@@ -60,6 +63,9 @@
     <ClInclude Include="FileTransfer.h">
       <Filter>Network</Filter>
     </ClInclude>
+    <ClInclude Include="MemoryPool.h">
+      <Filter>memory</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Session.cpp">
@@ -106,6 +112,9 @@
     </ClCompile>
     <ClCompile Include="FileTransfer.cpp">
       <Filter>Network</Filter>
+    </ClCompile>
+    <ClCompile Include="MemoryPool.cpp">
+      <Filter>memory</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>

@@ -34,6 +34,7 @@ using uint64 = unsigned __int64;
 #include <queue>
 #include <set>
 #include <functional>
+#include <map>
 
 #include "SendBuffer.h"
 #include "Session.h"
