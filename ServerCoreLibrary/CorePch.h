@@ -38,4 +38,5 @@ using uint64 = unsigned __int64;
 
 #include "SendBuffer.h"
 #include "Session.h"
+#include "MemoryPool.h"
 

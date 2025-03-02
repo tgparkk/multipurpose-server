@@ -40,8 +40,8 @@ std::shared_ptr<SendBuffer> SendBufferChunk::Open(uint32_t allocSize)
     // 3. 사용 중 표시
     _open = true;
 
-    // 4. SendBuffer 생성하여 반환
-    return std::make_shared<SendBuffer>(shared_from_this(), Buffer(), allocSize);
+    // 4. ObjectPool을 통해 SendBuffer 생성
+    return ObjectPool<SendBuffer>::MakeShared(shared_from_this(), Buffer(), allocSize);
 }
 
 void SendBufferChunk::Close(uint32_t writeSize)
@@ -92,8 +92,11 @@ std::shared_ptr<SendBufferChunk> SendBufferManager::Pop()
         return sendBufferChunk;
     }
 
-    // 새 청크 생성 - PushGlobal을 사용하여 자동 반환
-    return std::shared_ptr<SendBufferChunk>(new SendBufferChunk(), PushGlobal);
+    //// 새 청크 생성 - PushGlobal을 사용하여 자동 반환
+    //return std::shared_ptr<SendBufferChunk>(new SendBufferChunk(), PushGlobal);
+    
+    // 2. 새 청크가 필요하면 ObjectPool 사용
+    return ObjectPool<SendBufferChunk>::MakeShared();
 }
 
 void SendBufferManager::Push(std::shared_ptr<SendBufferChunk> buffer)
