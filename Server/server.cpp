@@ -15,6 +15,14 @@ enum PacketId
     PKT_C_CHAT = 1,
     PKT_S_CHAT = 2,
 
+    // 과부하 테스트용 패킷 ID 추가
+    PKT_C_STRESS_START = 3,    // 클라이언트가 서버에 과부하 테스트 시작 요청
+    PKT_S_STRESS_START = 4,    // 서버가 클라이언트에 과부하 테스트 시작 확인
+    PKT_C_STRESS_DATA = 5,     // 클라이언트가 보내는 과부하 테스트 데이터
+    PKT_S_STRESS_DATA = 6,     // 서버가 보내는 과부하 테스트 데이터
+    PKT_C_STRESS_END = 7,      // 클라이언트가 서버에 과부하 테스트 종료 알림
+    PKT_S_STRESS_RESULT = 8,   // 서버가 보내는 과부하 테스트 결과
+
     // 파일 전송 관련 패킷 ID
     PKT_FILE_REQUEST = static_cast<uint16_t>(FileTransferPacketId::FileTransferRequest),
     PKT_FILE_RESPONSE = static_cast<uint16_t>(FileTransferPacketId::FileTransferResponse),
@@ -28,11 +36,42 @@ struct ChatData
     char msg[100]; // 메시지 최대 99자 + null
 };
 
+// 과부하 테스트 시작 요청 패킷
+struct StressTestStartData
+{
+    uint32_t messageCount;     // 전송할 메시지 수
+    uint32_t messageSize;      // 메시지 크기 (바이트)
+    uint32_t intervalMs;       // 전송 간격 (밀리초)
+};
+
+// 과부하 테스트 데이터 패킷
+struct StressTestData
+{
+    uint32_t sequenceNumber;   // 메시지 순번
+    uint32_t timestamp;        // 전송 시간 (밀리초)
+    char data[4000];           // 데이터 버퍼 (가변 크기로 사용)
+};
+
+// 과부하 테스트 결과 패킷
+struct StressTestResult
+{
+    uint32_t totalMessages;     // 총 메시지 수
+    uint32_t receivedMessages;  // 받은 메시지 수
+    uint32_t lostMessages;      // 손실된 메시지 수
+    float avgLatencyMs;         // 평균 지연 시간 (밀리초)
+    float maxLatencyMs;         // 최대 지연 시간 (밀리초)
+    float minLatencyMs;         // 최소 지연 시간 (밀리초)
+    float dataRateMBps;         // 데이터 전송률 (MB/s)
+};
+
 class GameSession : public FilePacketSession
 {
 public:
     GameSession(asio::io_context& ioc)
         : FilePacketSession(ioc)
+        , _stressTestActive(false)
+        , _stressTestStartTime(chrono::steady_clock::now())
+        , _stressTestTimer(ioc)
     {
         // 파일 수신 디렉토리 설정 - 절대 경로 사용
         std::string receiveDir = "./server_received_files";
@@ -92,14 +131,22 @@ public:
     virtual void OnDisconnected() override
     {
         std::cout << "Client DisConnected" << std::endl;
+
+        // 과부하 테스트 진행 중이었다면 정리
+        if (_stressTestActive) {
+            _stressTestActive = false;
+            std::cout << "Stress test ended due to client disconnection" << std::endl;
+        }
     }
 
     virtual void OnRecvPacket(BYTE* buffer, int32_t len) override
     {
         PacketHeader* header = reinterpret_cast<PacketHeader*>(buffer);
 
-        // 중요: 패킷 ID 로깅
-        std::cout << "Received packet with ID: " << header->id << ", Size: " << header->size << std::endl;
+        // 중요: 패킷 ID 로깅 (과부하 테스트 시에는 로깅 비활성화)
+        if (!_stressTestActive || header->id != PKT_C_STRESS_DATA) {
+            std::cout << "Received packet with ID: " << header->id << ", Size: " << header->size << std::endl;
+        }
 
         // 1. 패킷 데이터 추출
         // 일반 채팅 메시지 처리
@@ -123,6 +170,103 @@ public:
             sendBuffer->Close(resHeader->size);
             Send(sendBuffer);
         }
+        // 과부하 테스트 시작 요청
+        else if (header->id == PKT_C_STRESS_START)
+        {
+            StressTestStartData* startData = reinterpret_cast<StressTestStartData*>(buffer + sizeof(PacketHeader));
+
+            // 요청 정보 출력
+            std::cout << "\n==== Stress Test Request ====" << std::endl;
+            std::cout << "Message count: " << startData->messageCount << std::endl;
+            std::cout << "Message size: " << startData->messageSize << " bytes" << std::endl;
+            std::cout << "Interval: " << startData->intervalMs << " ms" << std::endl;
+            std::cout << "=============================" << std::endl;
+
+            // 테스트 설정 저장
+            _stressTestConfig = *startData;
+
+            // 테스트 통계 초기화
+            _stressTestActive = true;
+            _stressTestStartTime = chrono::steady_clock::now();
+            _receivedMessages.clear();
+            _lastReceivedSeq = 0;
+            _receivedBytes = 0;
+            _totalLatency = 0;
+            _maxLatency = 0;
+            _minLatency = UINT32_MAX;
+
+            // 시작 확인 패킷 전송
+            SendBufferRef sendBuffer = GSendBufferManager->Open(sizeof(PacketHeader));
+            PacketHeader* resHeader = reinterpret_cast<PacketHeader*>(sendBuffer->Buffer());
+            resHeader->size = sizeof(PacketHeader);
+            resHeader->id = PKT_S_STRESS_START;
+            sendBuffer->Close(resHeader->size);
+            Send(sendBuffer);
+
+            std::cout << "Stress test started" << std::endl;
+        }
+        // 과부하 테스트 데이터
+        else if (header->id == PKT_C_STRESS_DATA)
+        {
+            if (!_stressTestActive) return;
+
+            StressTestData* stressData = reinterpret_cast<StressTestData*>(buffer + sizeof(PacketHeader));
+
+            // 현재 시간
+            uint32_t currentTimeMs = static_cast<uint32_t>(chrono::duration_cast<chrono::milliseconds>(
+                chrono::steady_clock::now().time_since_epoch()).count());
+
+            // 지연 시간 측정
+            uint32_t latency = currentTimeMs - stressData->timestamp;
+
+            // 통계 업데이트
+            _receivedMessages.insert(stressData->sequenceNumber);
+            _lastReceivedSeq = max(_lastReceivedSeq, stressData->sequenceNumber);
+            _receivedBytes += header->size - sizeof(PacketHeader);
+            _totalLatency += latency;
+            _maxLatency = max(_maxLatency, latency);
+            _minLatency = min(_minLatency, latency);
+
+            // 진행 상황 로깅 (100개마다 로그)
+            if (_receivedMessages.size() % 100 == 0) {
+                float progress = static_cast<float>(_receivedMessages.size()) / _stressTestConfig.messageCount * 100.0f;
+                std::cout << "Stress test progress: " << std::fixed << std::setprecision(1)
+                    << progress << "% (" << _receivedMessages.size() << "/"
+                    << _stressTestConfig.messageCount << " messages)" << std::endl;
+            }
+
+            // 응답 패킷 전송 (에코)
+            SendBufferRef sendBuffer = GSendBufferManager->Open(header->size);
+            if (sendBuffer != nullptr) {
+                PacketHeader* resHeader = reinterpret_cast<PacketHeader*>(sendBuffer->Buffer());
+                StressTestData* resData = reinterpret_cast<StressTestData*>(sendBuffer->Buffer() + sizeof(PacketHeader));
+
+                resHeader->size = header->size;
+                resHeader->id = PKT_S_STRESS_DATA;
+
+                // 원본 데이터 복사 (에코)
+                memcpy(resData, stressData, header->size - sizeof(PacketHeader));
+
+                // 타임스탬프 업데이트
+                resData->timestamp = stressData->timestamp;
+
+                sendBuffer->Close(resHeader->size);
+                Send(sendBuffer);
+            }
+        }
+        // 과부하 테스트 종료
+        else if (header->id == PKT_C_STRESS_END)
+        {
+            if (!_stressTestActive) return;
+
+            std::cout << "Client requested stress test end" << std::endl;
+
+            // 테스트 결과 계산 및 전송
+            SendStressTestResult();
+
+            // 테스트 종료
+            _stressTestActive = false;
+        }
         // 파일 전송 관련 패킷은 부모 클래스(FilePacketSession)에서 처리
         else if (IsFileTransferPacket(header->id))
         {
@@ -138,6 +282,54 @@ public:
     }
 
 private:
+    // 과부하 테스트 결과 전송
+    void SendStressTestResult()
+    {
+        auto testDuration = chrono::duration_cast<chrono::milliseconds>(
+            chrono::steady_clock::now() - _stressTestStartTime).count();
+
+        // 결과 패킷 생성
+        SendBufferRef sendBuffer = GSendBufferManager->Open(sizeof(PacketHeader) + sizeof(StressTestResult));
+        if (sendBuffer == nullptr) return;
+
+        PacketHeader* header = reinterpret_cast<PacketHeader*>(sendBuffer->Buffer());
+        StressTestResult* result = reinterpret_cast<StressTestResult*>(sendBuffer->Buffer() + sizeof(PacketHeader));
+
+        // 패킷 구성
+        header->size = sizeof(PacketHeader) + sizeof(StressTestResult);
+        header->id = PKT_S_STRESS_RESULT;
+
+        // 결과 데이터 채우기
+        result->totalMessages = _stressTestConfig.messageCount;
+        result->receivedMessages = static_cast<uint32_t>(_receivedMessages.size());
+        result->lostMessages = _lastReceivedSeq - result->receivedMessages;
+
+        result->avgLatencyMs = result->receivedMessages > 0 ?
+            static_cast<float>(_totalLatency) / result->receivedMessages : 0.0f;
+        result->maxLatencyMs = static_cast<float>(_maxLatency);
+        result->minLatencyMs = _minLatency != UINT32_MAX ? static_cast<float>(_minLatency) : 0.0f;
+
+        // 데이터 전송률 계산 (MB/s)
+        result->dataRateMBps = testDuration > 0 ?
+            (_receivedBytes / 1024.0f / 1024.0f) / (testDuration / 1000.0f) : 0.0f;
+
+        // 패킷 전송
+        sendBuffer->Close(header->size);
+        Send(sendBuffer);
+
+        // 콘솔에도 결과 출력
+        std::cout << "\n==== Stress Test Results ====" << std::endl;
+        std::cout << "Total messages: " << result->totalMessages << std::endl;
+        std::cout << "Received messages: " << result->receivedMessages << std::endl;
+        std::cout << "Lost messages: " << result->lostMessages << std::endl;
+        std::cout << "Test duration: " << testDuration << " ms" << std::endl;
+        std::cout << "Average latency: " << result->avgLatencyMs << " ms" << std::endl;
+        std::cout << "Min latency: " << result->minLatencyMs << " ms" << std::endl;
+        std::cout << "Max latency: " << result->maxLatencyMs << " ms" << std::endl;
+        std::cout << "Data rate: " << result->dataRateMBps << " MB/s" << std::endl;
+        std::cout << "============================" << std::endl;
+    }
+
     bool IsFileTransferPacket(uint16_t packetId)
     {
         // 각 패킷 ID를 명시적으로 확인
@@ -168,6 +360,19 @@ private:
         sendBuffer->Close(resHeader->size);
         Send(sendBuffer);
     }
+
+private:
+    // 과부하 테스트 관련 변수
+    bool _stressTestActive;
+    StressTestStartData _stressTestConfig;
+    std::chrono::steady_clock::time_point _stressTestStartTime;
+    std::set<uint32_t> _receivedMessages;
+    uint32_t _lastReceivedSeq;
+    uint64_t _receivedBytes;
+    uint64_t _totalLatency;
+    uint32_t _maxLatency;
+    uint32_t _minLatency;
+    asio::steady_timer _stressTestTimer;
 };
 
 int main()

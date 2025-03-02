@@ -33,35 +33,11 @@ struct MemoryHeader
 class MemoryPool
 {
 public:
-    MemoryPool(uint32 allocSize) : _allocSize(allocSize) {}
+    MemoryPool(uint32 allocSize);
+    ~MemoryPool();
 
-    ~MemoryPool()
-    {
-        std::lock_guard<std::mutex> guard(_lock);
-        for (MemoryHeader* ptr : _queue)
-            free(ptr);
-    }
-
-    MemoryHeader* Pop()
-    {
-        std::lock_guard<std::mutex> guard(_lock);
-        if (_queue.empty())
-        {
-            // ªı∑Œ «“¥Á
-            MemoryHeader* ptr = reinterpret_cast<MemoryHeader*>(malloc(_allocSize + sizeof(MemoryHeader)));
-            return ptr;
-        }
-
-        MemoryHeader* ptr = _queue.back();
-        _queue.pop_back();
-        return ptr;
-    }
-
-    void Push(MemoryHeader* ptr)
-    {
-        std::lock_guard<std::mutex> guard(_lock);
-        _queue.push_back(ptr);
-    }
+    void          Push(MemoryHeader* ptr);
+    MemoryHeader* Pop();
 
 private:
     uint32 _allocSize = 0;
@@ -83,4 +59,31 @@ public:
 
 private:
     std::map<uint32, MemoryPool*> _pools;
+};
+
+// ∞¥√º «Æ ≈€«√∏¥
+template<typename Type>
+class ObjectPool
+{
+public:
+    template<typename... Args>
+    static Type* Pop(Args&&... args)
+    {
+        Type* memory = static_cast<Type*>(GMemoryManager->Allocate(sizeof(Type)));
+        new(memory)Type(std::forward<Args>(args)...); // placement new
+        return memory;
+    }
+
+    static void Push(Type* obj)
+    {
+        obj->~Type();
+        GMemoryManager->Release(obj);
+    }
+
+    template<typename... Args>
+    static std::shared_ptr<Type> MakeShared(Args&&... args)
+    {
+        std::shared_ptr<Type> ptr = { Pop(std::forward<Args>(args)...), Push };
+        return ptr;
+    }
 };
