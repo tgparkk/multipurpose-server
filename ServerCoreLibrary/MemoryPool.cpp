@@ -3,7 +3,7 @@
 #include "SendBuffer.h" // SendBufferChunk::SEND_BUFFER_CHUNK_SIZE 사용을 위해
 
 
-MemoryPool::MemoryPool(uint32_t allocSize) : _allocSize(allocSize)
+MemoryPool::MemoryPool(uint32 allocSize) : _allocSize(allocSize)
 {
 }
 
@@ -40,10 +40,10 @@ MemoryHeader* MemoryPool::Pop()
 MemoryPoolManager::MemoryPoolManager()
 {
     // 각 사이즈별 메모리 풀 생성
-    for (uint32_t size = 32; size <= 1024; size += 32)
+    for (uint32 size = 32; size <= 1024; size += 32)
         _pools[size] = new MemoryPool(size);
 
-    for (uint32_t size = 1024 + 128; size <= 4096; size += 128)
+    for (uint32 size = 1024 + 128; size <= 4096; size += 128)
         _pools[size] = new MemoryPool(size);
 
     // 64KB짜리 청크 전용 풀
@@ -56,7 +56,7 @@ MemoryPoolManager::~MemoryPoolManager()
         delete pair.second;
 }
 
-void* MemoryPoolManager::Allocate(uint32_t size)
+void* MemoryPoolManager::Allocate(uint32 size)
 {
     MemoryPool* pool = nullptr;
 

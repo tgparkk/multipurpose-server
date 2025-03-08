@@ -2,7 +2,7 @@
 #include "SendBuffer.h"
 
 SendBuffer::SendBuffer(std::shared_ptr<SendBufferChunk> owner, BYTE* buffer, uint32_t allocSize)
-    : _owner(owner), _buffer(buffer), _allocSize(allocSize)
+    : _owner(owner), _bufferPtr(buffer), _allocSize(allocSize)
 {
 }
 

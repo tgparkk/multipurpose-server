@@ -10,13 +10,13 @@ public:
     SendBuffer(std::shared_ptr<SendBufferChunk> owner, BYTE* buffer, uint32_t allocSize);
     ~SendBuffer() = default;
 
-    BYTE* Buffer() { return _buffer; }
+    BYTE* Buffer() { return _bufferPtr; }
     uint32_t        AllocSize() const { return _allocSize; }
     uint32_t        WriteSize() const { return _writeSize; }
     void            Close(uint32_t writeSize);
 
 private:
-    BYTE* _buffer;     // 실제 버퍼 포인터
+    BYTE* _bufferPtr;     // 실제 버퍼 포인터
     uint32_t        _allocSize = 0;   // 할당된 크기
     uint32_t        _writeSize = 0;   // 실제 쓰인 크기
     std::shared_ptr<SendBufferChunk> _owner;  // 소유자 청크
